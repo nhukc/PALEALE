@@ -287,8 +287,16 @@ impl<W: fmt::Write> Visitor for Writer<W> {
                         write!(self.wtr, "{{{},{}}}", m, n)?;
                     }
                 }
-                if !x.greedy {
-                    self.wtr.write_str("?")?;
+                match x.kind {
+                    hir::RepetitionKind::Reluctant => {
+                        self.wtr.write_str("?")?;
+                    }
+                    hir::RepetitionKind::Possessive => {
+                        self.wtr.write_str("+")?;
+                    }
+                    hir::RepetitionKind::Greedy => {
+                        // No suffix for greedy
+                    }
                 }
             }
             HirKind::Capture(_)
@@ -514,7 +522,7 @@ mod tests {
             Hir::repetition(hir::Repetition {
                 min: 1,
                 max: None,
-                greedy: true,
+                kind: hir::RepetitionKind::Greedy,
                 sub: Box::new(Hir::literal("ab".as_bytes())),
             }),
             Hir::literal("y".as_bytes()),
@@ -526,7 +534,7 @@ mod tests {
             Hir::repetition(hir::Repetition {
                 min: 1,
                 max: None,
-                greedy: true,
+                kind: hir::RepetitionKind::Greedy,
                 sub: Box::new(Hir::concat(alloc::vec![
                     Hir::look(hir::Look::Start),
                     Hir::look(hir::Look::End),
@@ -548,7 +556,7 @@ mod tests {
             Hir::repetition(hir::Repetition {
                 min: 1,
                 max: None,
-                greedy: true,
+                kind: hir::RepetitionKind::Greedy,
                 sub: Box::new(Hir::alternation(alloc::vec![
                     Hir::literal("cd".as_bytes()),
                     Hir::literal("ef".as_bytes()),
@@ -563,7 +571,7 @@ mod tests {
             Hir::repetition(hir::Repetition {
                 min: 1,
                 max: None,
-                greedy: true,
+                kind: hir::RepetitionKind::Greedy,
                 sub: Box::new(Hir::alternation(alloc::vec![
                     Hir::look(hir::Look::Start),
                     Hir::look(hir::Look::End),

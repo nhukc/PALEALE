@@ -448,7 +448,8 @@ impl Extractor {
     fn extract_repetition(&self, rep: &hir::Repetition) -> Seq {
         let mut subseq = self.extract(&rep.sub);
         match *rep {
-            hir::Repetition { min: 0, max, greedy, .. } => {
+            hir::Repetition { min: 0, max, kind, .. } => {
+                let greedy = matches!(kind, hir::RepetitionKind::Greedy);
                 // When 'max=1', we can retain exactness, since 'a?' is
                 // equivalent to 'a|'. Similarly below, 'a??' is equivalent to
                 // '|a'.

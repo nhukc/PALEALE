@@ -1807,6 +1807,17 @@ pub struct Capture {
 
 /// The high-level intermediate representation of a repetition operator.
 ///
+/// The kind of a repetition operator.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepetitionKind {
+    /// A greedy repetition operator, e.g., `*`, `+`, `?` or `{m,n}`.
+    Greedy,
+    /// A reluctant (non-greedy) repetition operator, e.g., `*?`, `+?`, `??` or `{m,n}?`.
+    Reluctant,
+    /// A possessive repetition operator, e.g., `*+`, `++`, `?+` or `{m,n}+`.
+    Possessive,
+}
+
 /// A repetition operator permits the repetition of an arbitrary
 /// sub-expression.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1826,28 +1837,42 @@ pub struct Repetition {
     /// max are equivalent, `min` will be set to `5` and `max` will be set to
     /// `Some(5)`.
     pub max: Option<u32>,
-    /// Whether this repetition operator is greedy or not. A greedy operator
-    /// will match as much as it can. A non-greedy operator will match as
-    /// little as it can.
+    /// The kind of repetition operator: greedy, reluctant, or possessive.
     ///
-    /// Typically, operators are greedy by default and are only non-greedy when
+    /// Typically, operators are greedy by default and are only reluctant when
     /// a `?` suffix is used, e.g., `(expr)*` is greedy while `(expr)*?` is
-    /// not. However, this can be inverted via the `U` "ungreedy" flag.
-    pub greedy: bool,
+    /// reluctant. A possessive operator uses a `+` suffix, e.g., `(expr)*+`.
+    /// However, greedy and reluctant can be inverted via the `U` "ungreedy" flag.
+    pub kind: RepetitionKind,
     /// The expression being repeated.
     pub sub: Box<Hir>,
 }
 
 impl Repetition {
-    /// Returns a new repetition with the same `min`, `max` and `greedy`
+    /// Returns a new repetition with the same `min`, `max` and `kind`
     /// values, but with its sub-expression replaced with the one given.
     pub fn with(&self, sub: Hir) -> Repetition {
         Repetition {
             min: self.min,
             max: self.max,
-            greedy: self.greedy,
+            kind: self.kind,
             sub: Box::new(sub),
         }
+    }
+
+    /// Returns true if this repetition is greedy.
+    pub fn is_greedy(&self) -> bool {
+        matches!(self.kind, RepetitionKind::Greedy)
+    }
+
+    /// Returns true if this repetition is reluctant (non-greedy).
+    pub fn is_reluctant(&self) -> bool {
+        matches!(self.kind, RepetitionKind::Reluctant)
+    }
+
+    /// Returns true if this repetition is possessive.
+    pub fn is_possessive(&self) -> bool {
+        matches!(self.kind, RepetitionKind::Possessive)
     }
 }
 
@@ -3815,7 +3840,7 @@ mod tests {
                 expr = Hir::repetition(Repetition {
                     min: 0,
                     max: Some(1),
-                    greedy: true,
+                    kind: RepetitionKind::Greedy,
                     sub: Box::new(expr),
                 });
 
