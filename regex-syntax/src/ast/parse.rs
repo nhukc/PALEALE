@@ -1070,18 +1070,28 @@ impl<'s, P: Borrow<Parser>> ParserI<'s, P> {
             }
             _ => {}
         }
-        let mut greedy = true;
-        if self.bump() && self.char() == '?' {
-            greedy = false;
-            self.bump();
-        }
+        let modifier = if self.bump() {
+            match self.char() {
+                '?' => {
+                    self.bump();
+                    ast::RepetitionModifier::Reluctant
+                }
+                '+' => {
+                    self.bump();
+                    ast::RepetitionModifier::Possessive
+                }
+                _ => ast::RepetitionModifier::Greedy,
+            }
+        } else {
+            ast::RepetitionModifier::Greedy
+        };
         concat.asts.push(Ast::repetition(ast::Repetition {
             span: ast.span().with_end(self.pos()),
             op: ast::RepetitionOp {
                 span: Span::new(op_start, self.pos()),
                 kind,
             },
-            greedy,
+            modifier,
             ast: Box::new(ast),
         }));
         Ok(concat)
@@ -1181,11 +1191,21 @@ impl<'s, P: Borrow<Parser>> ParserI<'s, P> {
             ));
         }
 
-        let mut greedy = true;
-        if self.bump_and_bump_space() && self.char() == '?' {
-            greedy = false;
-            self.bump();
-        }
+        let modifier = if self.bump_and_bump_space() {
+            match self.char() {
+                '?' => {
+                    self.bump();
+                    ast::RepetitionModifier::Reluctant
+                }
+                '+' => {
+                    self.bump();
+                    ast::RepetitionModifier::Possessive
+                }
+                _ => ast::RepetitionModifier::Greedy,
+            }
+        } else {
+            ast::RepetitionModifier::Greedy
+        };
 
         let op_span = Span::new(start, self.pos());
         if !range.is_valid() {
@@ -1199,7 +1219,7 @@ impl<'s, P: Borrow<Parser>> ParserI<'s, P> {
                 span: op_span,
                 kind: ast::RepetitionKind::Range(range),
             },
-            greedy,
+            modifier,
             ast: Box::new(ast),
         }));
         Ok(concat)
@@ -2656,7 +2676,7 @@ mod tests {
                     span: span(1..2),
                     kind: ast::RepetitionKind::OneOrMore,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -2682,14 +2702,14 @@ mod tests {
                     span: span(2..3),
                     kind: ast::RepetitionKind::ZeroOrMore,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(Ast::repetition(ast::Repetition {
                     span: span(0..2),
                     op: ast::RepetitionOp {
                         span: span(1..2),
                         kind: ast::RepetitionKind::OneOrMore,
                     },
-                    greedy: true,
+                    modifier: ast::RepetitionModifier::Greedy,
                     ast: Box::new(lit('a', 0)),
                 })),
             }))
@@ -3064,6 +3084,90 @@ bar
     }
 
     #[test]
+    fn parse_possessive_quantifiers() {
+        // Basic possessive quantifiers
+        assert_eq!(
+            parser(r"a*+").parse(),
+            Ok(Ast::repetition(ast::Repetition {
+                span: span(0..3),
+                op: ast::RepetitionOp {
+                    span: span(1..3),
+                    kind: ast::RepetitionKind::ZeroOrMore,
+                },
+                modifier: ast::RepetitionModifier::Possessive,
+                ast: Box::new(lit('a', 0)),
+            }))
+        );
+        assert_eq!(
+            parser(r"a++").parse(),
+            Ok(Ast::repetition(ast::Repetition {
+                span: span(0..3),
+                op: ast::RepetitionOp {
+                    span: span(1..3),
+                    kind: ast::RepetitionKind::OneOrMore,
+                },
+                modifier: ast::RepetitionModifier::Possessive,
+                ast: Box::new(lit('a', 0)),
+            }))
+        );
+        assert_eq!(
+            parser(r"a?+").parse(),
+            Ok(Ast::repetition(ast::Repetition {
+                span: span(0..3),
+                op: ast::RepetitionOp {
+                    span: span(1..3),
+                    kind: ast::RepetitionKind::ZeroOrOne,
+                },
+                modifier: ast::RepetitionModifier::Possessive,
+                ast: Box::new(lit('a', 0)),
+            }))
+        );
+        // Counted possessive quantifiers
+        assert_eq!(
+            parser(r"a{5}+").parse(),
+            Ok(Ast::repetition(ast::Repetition {
+                span: span(0..5),
+                op: ast::RepetitionOp {
+                    span: span(1..5),
+                    kind: ast::RepetitionKind::Range(
+                        ast::RepetitionRange::Exactly(5)
+                    ),
+                },
+                modifier: ast::RepetitionModifier::Possessive,
+                ast: Box::new(lit('a', 0)),
+            }))
+        );
+        assert_eq!(
+            parser(r"a{5,}+").parse(),
+            Ok(Ast::repetition(ast::Repetition {
+                span: span(0..6),
+                op: ast::RepetitionOp {
+                    span: span(1..6),
+                    kind: ast::RepetitionKind::Range(
+                        ast::RepetitionRange::AtLeast(5)
+                    ),
+                },
+                modifier: ast::RepetitionModifier::Possessive,
+                ast: Box::new(lit('a', 0)),
+            }))
+        );
+        assert_eq!(
+            parser(r"a{5,9}+").parse(),
+            Ok(Ast::repetition(ast::Repetition {
+                span: span(0..7),
+                op: ast::RepetitionOp {
+                    span: span(1..7),
+                    kind: ast::RepetitionKind::Range(
+                        ast::RepetitionRange::Bounded(5, 9)
+                    ),
+                },
+                modifier: ast::RepetitionModifier::Possessive,
+                ast: Box::new(lit('a', 0)),
+            }))
+        );
+    }
+
+    #[test]
     fn parse_uncounted_repetition() {
         assert_eq!(
             parser(r"a*").parse(),
@@ -3073,7 +3177,7 @@ bar
                     span: span(1..2),
                     kind: ast::RepetitionKind::ZeroOrMore,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3085,7 +3189,7 @@ bar
                     span: span(1..2),
                     kind: ast::RepetitionKind::OneOrMore,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3098,7 +3202,7 @@ bar
                     span: span(1..2),
                     kind: ast::RepetitionKind::ZeroOrOne,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3110,7 +3214,7 @@ bar
                     span: span(1..3),
                     kind: ast::RepetitionKind::ZeroOrOne,
                 },
-                greedy: false,
+                modifier: ast::RepetitionModifier::Reluctant,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3122,7 +3226,7 @@ bar
                     span: span(1..2),
                     kind: ast::RepetitionKind::ZeroOrOne,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3137,7 +3241,7 @@ bar
                             span: span(1..2),
                             kind: ast::RepetitionKind::ZeroOrOne,
                         },
-                        greedy: true,
+                        modifier: ast::RepetitionModifier::Greedy,
                         ast: Box::new(lit('a', 0)),
                     }),
                     lit('b', 2),
@@ -3155,7 +3259,7 @@ bar
                             span: span(1..3),
                             kind: ast::RepetitionKind::ZeroOrOne,
                         },
-                        greedy: false,
+                        modifier: ast::RepetitionModifier::Reluctant,
                         ast: Box::new(lit('a', 0)),
                     }),
                     lit('b', 3),
@@ -3174,7 +3278,7 @@ bar
                             span: span(2..3),
                             kind: ast::RepetitionKind::ZeroOrOne,
                         },
-                        greedy: true,
+                        modifier: ast::RepetitionModifier::Greedy,
                         ast: Box::new(lit('b', 1)),
                     }),
                 ]
@@ -3188,7 +3292,7 @@ bar
                     span: span(4..5),
                     kind: ast::RepetitionKind::ZeroOrOne,
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(group(
                     0..4,
                     1,
@@ -3208,7 +3312,7 @@ bar
                             span: span(2..3),
                             kind: ast::RepetitionKind::ZeroOrOne,
                         },
-                        greedy: true,
+                        modifier: ast::RepetitionModifier::Greedy,
                         ast: Box::new(lit('a', 1)),
                     }),
                 ]
@@ -3299,7 +3403,7 @@ bar
                         ast::RepetitionRange::Exactly(5)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3313,7 +3417,7 @@ bar
                         ast::RepetitionRange::AtLeast(5)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3327,7 +3431,7 @@ bar
                         ast::RepetitionRange::Bounded(5, 9)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3341,7 +3445,7 @@ bar
                         ast::RepetitionRange::Exactly(5)
                     ),
                 },
-                greedy: false,
+                modifier: ast::RepetitionModifier::Reluctant,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3359,7 +3463,7 @@ bar
                                 ast::RepetitionRange::Exactly(5)
                             ),
                         },
-                        greedy: true,
+                        modifier: ast::RepetitionModifier::Greedy,
                         ast: Box::new(lit('b', 1)),
                     }),
                 ]
@@ -3379,7 +3483,7 @@ bar
                                 ast::RepetitionRange::Exactly(5)
                             ),
                         },
-                        greedy: true,
+                        modifier: ast::RepetitionModifier::Greedy,
                         ast: Box::new(lit('b', 1)),
                     }),
                     lit('c', 5),
@@ -3397,7 +3501,7 @@ bar
                         ast::RepetitionRange::Exactly(5)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3411,7 +3515,7 @@ bar
                         ast::RepetitionRange::Bounded(5, 9)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3425,7 +3529,7 @@ bar
                         ast::RepetitionRange::Bounded(0, 9)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3439,7 +3543,7 @@ bar
                         ast::RepetitionRange::Bounded(5, 9)
                     ),
                 },
-                greedy: false,
+                modifier: ast::RepetitionModifier::Reluctant,
                 ast: Box::new(lit('a', 0)),
             }))
         );
@@ -3453,7 +3557,7 @@ bar
                         ast::RepetitionRange::Bounded(5, 9)
                     ),
                 },
-                greedy: true,
+                modifier: ast::RepetitionModifier::Greedy,
                 ast: Box::new(Ast::assertion(ast::Assertion {
                     span: span(0..2),
                     kind: ast::AssertionKind::WordBoundary,

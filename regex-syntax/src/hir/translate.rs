@@ -1015,9 +1015,23 @@ impl<'t, 'p> TranslatorI<'t, 'p> {
                 n,
             )) => (m, Some(n)),
         };
-        let greedy =
-            if self.flags().swap_greed() { !rep.greedy } else { rep.greedy };
-        let kind = if greedy { hir::RepetitionKind::Greedy } else { hir::RepetitionKind::Reluctant };
+        let kind = match rep.modifier {
+            ast::RepetitionModifier::Possessive => hir::RepetitionKind::Possessive,
+            ast::RepetitionModifier::Greedy => {
+                if self.flags().swap_greed() {
+                    hir::RepetitionKind::Reluctant
+                } else {
+                    hir::RepetitionKind::Greedy
+                }
+            }
+            ast::RepetitionModifier::Reluctant => {
+                if self.flags().swap_greed() {
+                    hir::RepetitionKind::Greedy
+                } else {
+                    hir::RepetitionKind::Reluctant
+                }
+            }
+        };
         Hir::repetition(hir::Repetition {
             min,
             max,
@@ -1999,6 +2013,16 @@ mod tests {
             t(r"\\\.\+\*\?\(\)\|\[\]\{\}\^\$\#"),
             hir_lit(r"\.+*?()|[]{}^$#")
         );
+    }
+
+    #[test]
+    fn possessive_repetition() {
+        assert_eq!(t("a*+"), hir_star(hir::RepetitionKind::Possessive, hir_lit("a")));
+        assert_eq!(t("a++"), hir_plus(hir::RepetitionKind::Possessive, hir_lit("a")));
+        assert_eq!(t("a?+"), hir_quest(hir::RepetitionKind::Possessive, hir_lit("a")));
+        assert_eq!(t("a{5}+"), hir_range(hir::RepetitionKind::Possessive, 5, Some(5), hir_lit("a")));
+        assert_eq!(t("a{5,}+"), hir_range(hir::RepetitionKind::Possessive, 5, None, hir_lit("a")));
+        assert_eq!(t("a{5,9}+"), hir_range(hir::RepetitionKind::Possessive, 5, Some(9), hir_lit("a")));
     }
 
     #[test]

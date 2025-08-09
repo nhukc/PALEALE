@@ -176,19 +176,40 @@ impl<W: fmt::Write> Writer<W> {
 
     fn fmt_repetition(&mut self, ast: &ast::Repetition) -> fmt::Result {
         use crate::ast::RepetitionKind::*;
+        use crate::ast::RepetitionModifier::*;
+        
         match ast.op.kind {
-            ZeroOrOne if ast.greedy => self.wtr.write_str("?"),
-            ZeroOrOne => self.wtr.write_str("??"),
-            ZeroOrMore if ast.greedy => self.wtr.write_str("*"),
-            ZeroOrMore => self.wtr.write_str("*?"),
-            OneOrMore if ast.greedy => self.wtr.write_str("+"),
-            OneOrMore => self.wtr.write_str("+?"),
+            ZeroOrOne => {
+                self.wtr.write_str("?")?;
+                match ast.modifier {
+                    Reluctant => self.wtr.write_str("?"),
+                    Possessive => self.wtr.write_str("+"),
+                    Greedy => Ok(()),
+                }
+            }
+            ZeroOrMore => {
+                self.wtr.write_str("*")?;
+                match ast.modifier {
+                    Reluctant => self.wtr.write_str("?"),
+                    Possessive => self.wtr.write_str("+"),
+                    Greedy => Ok(()),
+                }
+            }
+            OneOrMore => {
+                self.wtr.write_str("+")?;
+                match ast.modifier {
+                    Reluctant => self.wtr.write_str("?"),
+                    Possessive => self.wtr.write_str("+"),
+                    Greedy => Ok(()),
+                }
+            }
             Range(ref x) => {
                 self.fmt_repetition_range(x)?;
-                if !ast.greedy {
-                    self.wtr.write_str("?")?;
+                match ast.modifier {
+                    Reluctant => self.wtr.write_str("?"),
+                    Possessive => self.wtr.write_str("+"),
+                    Greedy => Ok(()),
                 }
-                Ok(())
             }
         }
     }
@@ -482,16 +503,22 @@ mod tests {
     fn print_repetition() {
         roundtrip("a?");
         roundtrip("a??");
+        roundtrip("a?+");
         roundtrip("a*");
         roundtrip("a*?");
+        roundtrip("a*+");
         roundtrip("a+");
         roundtrip("a+?");
+        roundtrip("a++");
         roundtrip("a{5}");
         roundtrip("a{5}?");
+        roundtrip("a{5}+");
         roundtrip("a{5,}");
         roundtrip("a{5,}?");
+        roundtrip("a{5,}+");
         roundtrip("a{5,10}");
         roundtrip("a{5,10}?");
+        roundtrip("a{5,10}+");
     }
 
     #[test]

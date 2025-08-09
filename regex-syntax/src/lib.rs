@@ -428,4 +428,29 @@ mod tests {
     fn word_char_disabled_error() {
         assert!(try_is_word_character('a').is_err());
     }
+
+    #[test]
+    fn possessive_quantifiers_integration() {
+        use alloc::{vec, format};
+        use crate::parse;
+        
+        let test_cases = vec![
+            ("a*+", crate::hir::RepetitionKind::Possessive),
+            ("b++", crate::hir::RepetitionKind::Possessive), 
+            ("c?+", crate::hir::RepetitionKind::Possessive),
+            ("d{2,5}+", crate::hir::RepetitionKind::Possessive),
+            ("a*", crate::hir::RepetitionKind::Greedy),
+            ("b*?", crate::hir::RepetitionKind::Reluctant),
+        ];
+        
+        for (pattern, expected_kind) in test_cases {
+            let hir = parse(pattern).expect(&format!("Failed to parse: {}", pattern));
+            match hir.kind() {
+                crate::hir::HirKind::Repetition(rep) => {
+                    assert_eq!(rep.kind, expected_kind, "Pattern: {}", pattern);
+                }
+                _ => panic!("Pattern {} was not parsed as repetition", pattern),
+            }
+        }
+    }
 }

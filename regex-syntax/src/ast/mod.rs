@@ -1342,6 +1342,18 @@ pub enum AssertionKind {
     WordBoundaryEndHalf,
 }
 
+/// The modifier applied to a repetition operator.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum RepetitionModifier {
+    /// A greedy repetition, e.g., `*`, `+`, `?`, `{m,n}`.
+    Greedy,
+    /// A reluctant (non-greedy) repetition, e.g., `*?`, `+?`, `??`, `{m,n}?`.
+    Reluctant,
+    /// A possessive repetition, e.g., `*+`, `++`, `?+`, `{m,n}+`.
+    Possessive,
+}
+
 /// A repetition operation applied to a regular expression.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -1350,8 +1362,8 @@ pub struct Repetition {
     pub span: Span,
     /// The actual operation.
     pub op: RepetitionOp,
-    /// Whether this operation was applied greedily or not.
-    pub greedy: bool,
+    /// The modifier applied to this repetition.
+    pub modifier: RepetitionModifier,
     /// The regular expression under repetition.
     pub ast: Box<Ast>,
 }
