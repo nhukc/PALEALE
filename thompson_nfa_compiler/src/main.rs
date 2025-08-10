@@ -13,7 +13,24 @@ fn main() {
         "a?",
         "a|b",
         "[abc]",
+        "[sdmt]",  // Simple character class - should NOT be possessive
         "a++ab",
+        "a*+ab",
+        "a+?ab",
+        "[ab]++ab",
+        "[^abc]",
+        // Progressive tests to isolate the possessive bleed issue
+        "[sdmt]|ll",           // Simple alternation - no possessive
+        "[sdmt]|L++",          // Mix normal + possessive
+        "(?:[sdmt])",          // Non-capturing group
+        "(?:[sdmt]|ll)",       // Non-capturing group with alternation
+        "(?:[sdmt]|ll)|L++",   // Non-capturing + possessive in alternation
+        " ?L++",               // Optional space + possessive L
+        " ?L++| ?N++",         // Two possessive branches
+        "[sdmt]| ?L++",        // Normal + possessive in alternation
+        "(?:[sdmt]|ll|ve|re)", // The first part of complex pattern
+        "(?:[sdmt]|ll|ve|re)| ?L++", // First part + one possessive branch
+        "(?:[sdmt]|ll|ve|re)| ?L++| ?N++| ?[^\\sLN]++|\\s++$|\\s+|\\s"
     ];
     
     for pattern in test_patterns {
@@ -27,6 +44,9 @@ fn main() {
                 continue;
             }
         };
+        
+        // Debug: Print the HIR structure
+        println!("HIR: {:?}", hir);
         
         // Compile to two-character Thompson NFA
         let nfa = match Compiler::new().compile(&hir) {
@@ -55,6 +75,9 @@ fn print_nfa(nfa: &thompson_nfa_compiler::NFA) {
             thompson_nfa_compiler::nfa::State::Match => {
                 println!("MATCH");
             },
+            thompson_nfa_compiler::nfa::State::Rejected => {
+                println!("REJECTED");
+            },
             thompson_nfa_compiler::nfa::State::Epsilon { next } => {
                 println!("ε -> {}", next);
             },
@@ -70,9 +93,6 @@ fn print_nfa(nfa: &thompson_nfa_compiler::NFA) {
                         (Some(c), None) => print!("'{}'", c),
                         (None, Some(la)) => print!(". with lookahead '{}'", la),
                         (None, None) => print!("."),
-                    }
-                    if trans.possessive {
-                        print!(" (possessive)");
                     }
                     println!(" -> {}", trans.target);
                 }
