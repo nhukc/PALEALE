@@ -19,6 +19,7 @@ fn main() {
         "a+?ab",
         "[ab]++ab",
         "[^abc]",
+        "[^ab]++",  // Test possessive with negated class
         // Progressive tests to isolate the possessive bleed issue
         "[sdmt]|ll",           // Simple alternation - no possessive
         "[sdmt]|L++",          // Mix normal + possessive
@@ -30,7 +31,7 @@ fn main() {
         "[sdmt]| ?L++",        // Normal + possessive in alternation
         "(?:[sdmt]|ll|ve|re)", // The first part of complex pattern
         "(?:[sdmt]|ll|ve|re)| ?L++", // First part + one possessive branch
-        "(?:[sdmt]|ll|ve|re)| ?L++| ?N++| ?[^\\sLN]++|\\s++$|\\s+|\\s"
+        "(?:[sdmt]|ll|ve|re)| ?\\p{L}++| ?\\p{N}++| ?[^\\s\\p{L}\\p{N}]++|\\s++$|\\s+\\S|\\s"
     ];
     
     for pattern in test_patterns {
@@ -88,12 +89,58 @@ fn print_nfa(nfa: &thompson_nfa_compiler::NFA) {
                 println!("TRANSITIONS:");
                 for (i, trans) in transitions.iter().enumerate() {
                     print!("    {}: ", i);
-                    match (&trans.current, &trans.lookahead) {
-                        (Some(c), Some(la)) => print!("'{}' with lookahead '{}'", c, la),
-                        (Some(c), None) => print!("'{}'", c),
-                        (None, Some(la)) => print!(". with lookahead '{}'", la),
-                        (None, None) => print!("."),
+                    
+                    // Print current predicate
+                    match &trans.current {
+                        thompson_nfa_compiler::nfa::CharacterPredicate::Any => print!("."),
+                        thompson_nfa_compiler::nfa::CharacterPredicate::Char(c) => print!("'{}'", c),
+                        thompson_nfa_compiler::nfa::CharacterPredicate::CharSet(set) => {
+                            print!("[");
+                            let chars: Vec<_> = set.iter().collect();
+                            for (i, ch) in chars.iter().enumerate() {
+                                if i > 0 { print!(""); }
+                                print!("{}", ch);
+                            }
+                            print!("]");
+                        },
+                        thompson_nfa_compiler::nfa::CharacterPredicate::NotCharSet(set) => {
+                            print!("[^");
+                            let chars: Vec<_> = set.iter().collect();
+                            for (i, ch) in chars.iter().enumerate() {
+                                if i > 0 { print!(""); }
+                                print!("{}", ch);
+                            }
+                            print!("]");
+                        },
                     }
+                    
+                    // Print lookahead predicate
+                    if let Some(lookahead) = &trans.lookahead {
+                        print!(" with lookahead ");
+                        match lookahead {
+                            thompson_nfa_compiler::nfa::CharacterPredicate::Any => print!("."),
+                            thompson_nfa_compiler::nfa::CharacterPredicate::Char(c) => print!("'{}'", c),
+                            thompson_nfa_compiler::nfa::CharacterPredicate::CharSet(set) => {
+                                print!("[");
+                                let chars: Vec<_> = set.iter().collect();
+                                for (i, ch) in chars.iter().enumerate() {
+                                    if i > 0 { print!(""); }
+                                    print!("{}", ch);
+                                }
+                                print!("]");
+                            },
+                            thompson_nfa_compiler::nfa::CharacterPredicate::NotCharSet(set) => {
+                                print!("[^");
+                                let chars: Vec<_> = set.iter().collect();
+                                for (i, ch) in chars.iter().enumerate() {
+                                    if i > 0 { print!(""); }
+                                    print!("{}", ch);
+                                }
+                                print!("]");
+                            },
+                        }
+                    }
+                    
                     println!(" -> {}", trans.target);
                 }
             }

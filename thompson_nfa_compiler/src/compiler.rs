@@ -195,7 +195,7 @@ impl Compiler {
         // Create rejection transitions for the characters that should be rejected
         for &ch in &rejected_chars {
             transitions.push(TwoCharTransition {
-                current: Some(ch),
+                current: crate::nfa::CharacterPredicate::Char(ch),
                 lookahead: None,
                 target: rejected_state,
             });
@@ -478,13 +478,15 @@ impl Compiler {
                             let start_char = range.start();
                             let end_char = range.end();
                             
-                            if (end_char as u32) - (start_char as u32) <= 10 {
+                            if (end_char as u32) - (start_char as u32) <= 100 {
                                 for ch_code in (start_char as u32)..=(end_char as u32) {
                                     if let Some(ch) = char::from_u32(ch_code) {
                                         chars.push(ch);
                                     }
                                 }
                             } else {
+                                print!("{:?}", class);
+                                print!("{:?}", (end_char as u32) - (start_char as u32));
                                 return Err(CompileError::UnsupportedFeature("large character ranges in lookahead".to_string()));
                             }
                         }
@@ -527,7 +529,7 @@ impl Compiler {
                             // Create one transition for each lookahead character
                             for &lookahead_char in lookahead_chars {
                                 let mut new_trans = transition.clone();
-                                new_trans.lookahead = Some(lookahead_char);
+                                new_trans.lookahead = Some(crate::nfa::CharacterPredicate::Char(lookahead_char));
                                 new_transitions.push(new_trans);
                             }
                         }
@@ -551,7 +553,142 @@ impl Compiler {
         Ok(())
     }
     
-    /// Extract characters that a pattern would match
+    /// Convert HIR to a character predicate
+    fn hir_to_predicate(&self, hir: &Hir) -> CompileResult<crate::nfa::CharacterPredicate> {
+        use crate::nfa::CharacterPredicate;
+        use std::collections::HashSet;
+        
+        match hir.kind() {
+            HirKind::Literal(literal) => {
+                let bytes = &literal.0;
+                match std::str::from_utf8(bytes) {
+                    Ok(s) if s.len() == 1 => {
+                        let ch = s.chars().next().unwrap();
+                        Ok(CharacterPredicate::Char(ch))
+                    },
+                    Ok(s) => {
+                        // Multi-character literal - convert to character set
+                        let char_set: HashSet<char> = s.chars().collect();
+                        Ok(CharacterPredicate::CharSet(char_set))
+                    },
+                    Err(_) => {
+                        // Byte literal
+                        if bytes.len() == 1 {
+                            Ok(CharacterPredicate::Char(bytes[0] as char))
+                        } else {
+                            let char_set: HashSet<char> = bytes.iter().map(|&b| b as char).collect();
+                            Ok(CharacterPredicate::CharSet(char_set))
+                        }
+                    }
+                }
+            },
+            HirKind::Class(class) => {
+                match class {
+                    Class::Unicode(class_unicode) => {
+                        let mut char_set = HashSet::new();
+                        
+                        for range in class_unicode.iter() {
+                            let start_char = range.start();
+                            let end_char = range.end();
+                            
+                            // For reasonable ranges, add all characters
+                            if (end_char as u32) - (start_char as u32) <= 1000 {
+                                for ch_code in (start_char as u32)..=(end_char as u32) {
+                                    if let Some(ch) = char::from_u32(ch_code) {
+                                        char_set.insert(ch);
+                                    }
+                                }
+                            } else {
+                                // For very large ranges, this is likely a negated class
+                                // The regex-syntax library gives us the complement
+                                // We should return a NotCharSet for the gaps
+                                return self.handle_large_unicode_class(class_unicode);
+                            }
+                        }
+                        
+                        Ok(CharacterPredicate::CharSet(char_set))
+                    },
+                    Class::Bytes(class_bytes) => {
+                        let mut char_set = HashSet::new();
+                        for range in class_bytes.iter() {
+                            for byte in range.start()..=range.end() {
+                                char_set.insert(byte as char);
+                            }
+                        }
+                        Ok(CharacterPredicate::CharSet(char_set))
+                    }
+                }
+            },
+            _ => Err(CompileError::UnsupportedFeature("complex pattern in possessive quantifier".to_string())),
+        }
+    }
+    
+    /// Handle large Unicode character classes (likely negated)
+    fn handle_large_unicode_class(&self, class: &ClassUnicode) -> CompileResult<crate::nfa::CharacterPredicate> {
+        use crate::nfa::CharacterPredicate;
+        use std::collections::HashSet;
+        
+        // For very large Unicode classes, find the gaps (the excluded characters)
+        let mut excluded_chars = HashSet::new();
+        let ranges: Vec<_> = class.iter().collect();
+        
+        // Check gap before first range
+        if let Some(first_range) = ranges.first() {
+            if first_range.start() > '\u{0}' {
+                for ch_code in 0..(first_range.start() as u32) {
+                    if let Some(ch) = char::from_u32(ch_code) {
+                        excluded_chars.insert(ch);
+                    }
+                    if excluded_chars.len() > 200 { break; }
+                }
+            }
+        }
+        
+        // Check gaps between ranges
+        for i in 0..ranges.len().saturating_sub(1) {
+            let current_end = ranges[i].end() as u32;
+            let next_start = ranges[i + 1].start() as u32;
+            
+            if next_start > current_end + 1 {
+                for ch_code in (current_end + 1)..next_start {
+                    if let Some(ch) = char::from_u32(ch_code) {
+                        excluded_chars.insert(ch);
+                    }
+                    if excluded_chars.len() > 200 { break; }
+                }
+            }
+            
+            if excluded_chars.len() > 200 { break; }
+        }
+        
+        Ok(CharacterPredicate::NotCharSet(excluded_chars))
+    }
+    
+    /// Negate a character predicate
+    fn negate_predicate(&self, pred: crate::nfa::CharacterPredicate) -> crate::nfa::CharacterPredicate {
+        use crate::nfa::CharacterPredicate;
+        
+        match pred {
+            CharacterPredicate::Any => {
+                // Can't negate "any" - would be "nothing", which isn't useful
+                // Return empty set instead  
+                CharacterPredicate::CharSet(std::collections::HashSet::new())
+            },
+            CharacterPredicate::Char(ch) => {
+                let mut set = std::collections::HashSet::new();
+                set.insert(ch);
+                CharacterPredicate::NotCharSet(set)
+            },
+            CharacterPredicate::CharSet(set) => {
+                CharacterPredicate::NotCharSet(set)
+            },
+            CharacterPredicate::NotCharSet(set) => {
+                CharacterPredicate::CharSet(set)
+            },
+        }
+    }
+    
+    /// Extract characters that a pattern would match (legacy method)
     fn extract_pattern_chars(&self, hir: &Hir) -> CompileResult<Vec<char>> {
         self.extract_lookahead_chars(hir) // Same logic for now
     }
@@ -707,32 +844,41 @@ impl Compiler {
     
     /// Compile possessive + quantifier using lookahead structure
     fn compile_possessive_plus(&mut self, expr: &Hir) -> CompileResult<Fragment> {
-        // Extract the characters that this expression matches
-        let pattern_chars = self.extract_pattern_chars(expr)?;
+        // Convert the expression to a character predicate
+        let pattern_predicate = self.hir_to_predicate(expr)?;
         
         // Create transitions with proper possessive structure:
-        // - 'char' with lookahead 'char' -> loop back (for possessive continuation)  
-        // - 'char' -> exit (for normal exit)
+        // - pattern with lookahead pattern -> loop back (for possessive continuation)  
+        // - pattern with lookahead !pattern -> exit (for normal exit)
         let mut transitions = Vec::new();
         
-        for &ch in &pattern_chars {
-            // Possessive loop: if current char matches AND next char also matches, loop back
-            let loop_transition = TwoCharTransition::char_with_lookahead(ch, ch, usize::MAX); // Will point back to self
-            transitions.push(loop_transition);
-            
-            // Normal exit: if current char matches but next char doesn't match, exit
-            let exit_transition = TwoCharTransition::char(ch, usize::MAX); // Will point to end state
-            transitions.push(exit_transition);
-        }
+        // Possessive loop: if current matches pattern AND next also matches pattern, loop back
+        let loop_transition = TwoCharTransition::predicate(
+            pattern_predicate.clone(), 
+            Some(pattern_predicate.clone()), 
+            usize::MAX  // Will point back to self
+        );
+        transitions.push(loop_transition);
+        
+        // Normal exit: if current matches pattern but next doesn't match pattern, exit
+        let exit_transition = TwoCharTransition::predicate(
+            pattern_predicate.clone(),
+            Some(self.negate_predicate(pattern_predicate)), 
+            usize::MAX  // Will point to end state
+        );
+        transitions.push(exit_transition);
         
         // Create the main possessive state
         let main_state = self.nfa.transitions_state(transitions);
         
         // Update the loop transitions to point back to main_state
         if let crate::nfa::State::Transitions { transitions } = &mut self.nfa.states[main_state] {
-            for transition in transitions {
+            for (i, transition) in transitions.iter_mut().enumerate() {
                 if transition.lookahead.is_some() && transition.target == usize::MAX {
-                    transition.target = main_state; // Point back to self for possessive loops
+                    // Only the first transition (loop) should point back to self
+                    if i == 0 {
+                        transition.target = main_state; // Point back to self for possessive loops
+                    }
                 }
             }
         }

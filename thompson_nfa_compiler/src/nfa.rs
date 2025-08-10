@@ -3,13 +3,38 @@ use std::collections::HashSet;
 /// A state ID in the NFA
 pub type StateId = usize;
 
-/// A two-character transition that matches based on current and next character
+/// A logical predicate for matching characters
+#[derive(Debug, Clone, PartialEq)]
+pub enum CharacterPredicate {
+    /// Match any character
+    Any,
+    /// Match a specific character
+    Char(char),
+    /// Match any character in a set
+    CharSet(std::collections::HashSet<char>),
+    /// Match any character NOT in a set (negated)
+    NotCharSet(std::collections::HashSet<char>),
+}
+
+impl CharacterPredicate {
+    /// Test if this predicate matches the given character
+    pub fn matches(&self, ch: char) -> bool {
+        match self {
+            CharacterPredicate::Any => true,
+            CharacterPredicate::Char(expected) => ch == *expected,
+            CharacterPredicate::CharSet(set) => set.contains(&ch),
+            CharacterPredicate::NotCharSet(set) => !set.contains(&ch),
+        }
+    }
+}
+
+/// A two-character transition that matches based on logical predicates
 #[derive(Debug, Clone, PartialEq)]
 pub struct TwoCharTransition {
-    /// The current character to match (None means any character)
-    pub current: Option<char>,
-    /// The next character for lookahead (None means any character or end-of-input)
-    pub lookahead: Option<char>,
+    /// The predicate for the current character
+    pub current: CharacterPredicate,
+    /// The predicate for the lookahead character (None means no lookahead constraint)
+    pub lookahead: Option<CharacterPredicate>,
     /// The target state after consuming the current character
     pub target: StateId,
 }
@@ -18,7 +43,7 @@ impl TwoCharTransition {
     /// Create a simple single-character transition
     pub fn char(ch: char, target: StateId) -> Self {
         TwoCharTransition {
-            current: Some(ch),
+            current: CharacterPredicate::Char(ch),
             lookahead: None,
             target,
         }
@@ -27,8 +52,8 @@ impl TwoCharTransition {
     /// Create a transition with lookahead
     pub fn char_with_lookahead(current: char, lookahead: char, target: StateId) -> Self {
         TwoCharTransition {
-            current: Some(current),
-            lookahead: Some(lookahead),
+            current: CharacterPredicate::Char(current),
+            lookahead: Some(CharacterPredicate::Char(lookahead)),
             target,
         }
     }
@@ -36,7 +61,7 @@ impl TwoCharTransition {
     /// Create a single-character transition (possessive behavior comes from structure, not flags)
     pub fn char_possessive(ch: char, target: StateId) -> Self {
         TwoCharTransition {
-            current: Some(ch),
+            current: CharacterPredicate::Char(ch),
             lookahead: None,
             target,
         }
@@ -45,7 +70,7 @@ impl TwoCharTransition {
     /// Create a dot (any character) transition
     pub fn dot(target: StateId) -> Self {
         TwoCharTransition {
-            current: None,
+            current: CharacterPredicate::Any,
             lookahead: None,
             target,
         }
@@ -54,8 +79,17 @@ impl TwoCharTransition {
     /// Create a dot transition with lookahead
     pub fn dot_with_lookahead(lookahead: char, target: StateId) -> Self {
         TwoCharTransition {
-            current: None,
-            lookahead: Some(lookahead),
+            current: CharacterPredicate::Any,
+            lookahead: Some(CharacterPredicate::Char(lookahead)),
+            target,
+        }
+    }
+
+    /// Create a transition with character set predicates  
+    pub fn predicate(current: CharacterPredicate, lookahead: Option<CharacterPredicate>, target: StateId) -> Self {
+        TwoCharTransition {
+            current,
+            lookahead,
             target,
         }
     }

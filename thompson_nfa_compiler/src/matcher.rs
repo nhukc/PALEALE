@@ -110,20 +110,15 @@ impl<'a> Matcher<'a> {
     
     /// Check if a transition matches the current character and lookahead
     fn transition_matches(&self, transition: &TwoCharTransition, current_char: char, next_char: Option<char>) -> bool {
-        // Check current character match
-        let current_matches = match transition.current {
-            Some(expected) => current_char == expected,
-            None => true, // Any character (dot)
-        };
-        
-        if !current_matches {
+        // Check current character predicate
+        if !transition.current.matches(current_char) {
             return false;
         }
         
-        // Check lookahead
-        match (transition.lookahead, next_char) {
+        // Check lookahead predicate
+        match (&transition.lookahead, next_char) {
             (None, _) => true, // No lookahead constraint
-            (Some(expected), Some(actual)) => expected == actual,
+            (Some(lookahead_pred), Some(actual)) => lookahead_pred.matches(actual),
             (Some(_), None) => false, // Expected lookahead but at end of input
         }
     }
