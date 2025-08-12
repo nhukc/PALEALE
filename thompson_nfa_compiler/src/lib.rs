@@ -13,10 +13,12 @@
 pub mod nfa;
 pub mod compiler;
 pub mod matcher;
+pub mod verilog_gen;
 
 pub use nfa::{NFA, State, StateId, TwoCharTransition, Fragment};
 pub use compiler::Compiler;
 pub use matcher::Matcher;
+pub use verilog_gen::SystemVerilogGenerator;
 
 /// The result of compiling a regex to a two-character Thompson NFA
 pub type CompileResult<T> = Result<T, CompileError>;

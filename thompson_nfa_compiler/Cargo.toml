@@ -1,0 +1,11 @@
+[package]
+name = "thompson_nfa_compiler"
+version = "0.1.0"
+edition = "2021"
+authors = ["Claude"]
+description = "Thompson NFA compiler with two-character transitions for lookahead and possessive repetition"
+
+[dependencies]
+regex-syntax = { path = "../regex-syntax" }
+
+[dev-dependencies]

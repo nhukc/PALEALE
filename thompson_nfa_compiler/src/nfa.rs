@@ -144,12 +144,23 @@ pub struct NFA {
 impl NFA {
     /// Create a new empty NFA
     pub fn new() -> Self {
-        Self {
+        let mut nfa = Self {
             states: Vec::new(),
-            start: 0,
+            start: 2, // Start from state 2, since 0 and 1 are reserved
             accepting: HashSet::new(),
             next_id: 0,
-        }
+        };
+        
+        // Reserve state 0 for MATCH
+        let _match_id = nfa.add_state(State::Match);
+        debug_assert_eq!(_match_id, 0);
+        nfa.accepting.insert(0);
+        
+        // Reserve state 1 for REJECTED  
+        let _reject_id = nfa.add_state(State::Rejected);
+        debug_assert_eq!(_reject_id, 1);
+        
+        nfa
     }
     
     /// Add a new state and return its ID
@@ -182,16 +193,14 @@ impl NFA {
         self.add_state(State::Transitions { transitions })
     }
     
-    /// Create a match state
+    /// Get the reserved match state (always state 0)
     pub fn match_state(&mut self) -> StateId {
-        let id = self.add_state(State::Match);
-        self.accepting.insert(id);
-        id
+        0 // Always return the reserved match state
     }
     
-    /// Create a rejected state
+    /// Get the reserved rejected state (always state 1)
     pub fn rejected_state(&mut self) -> StateId {
-        self.add_state(State::Rejected)
+        1 // Always return the reserved rejected state
     }
     
     /// Connect two states with an epsilon transition
