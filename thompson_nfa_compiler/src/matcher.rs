@@ -67,17 +67,23 @@ impl<'a> Matcher<'a> {
                 None
             };
             
+            println!("Processing position {}: char='{}', next_char={:?}", position, current_char, next_char);
+            
             let next_states = self.step_states(&current_states, current_char, next_char);
             
             if next_states.is_empty() {
+                println!("No next states, breaking");
                 break;
             }
             
             current_states = self.nfa.epsilon_closure(&next_states);
             position += 1;
             
+            println!("After consuming '{}', position={}, current_states={:?}", current_char, position, current_states);
+            
             // Check if we're in an accepting state after consuming this character
             if self.nfa.is_accepting(&current_states) {
+                println!("In accepting state at position {}", position);
                 return Some(position);
             }
             
@@ -99,12 +105,21 @@ impl<'a> Matcher<'a> {
         // Get all possible transitions from current states
         let transitions = self.nfa.get_two_char_transitions(current_states);
         
+        println!("Step states: current_states={:?}, current_char='{}', next_char={:?}", 
+                 current_states, current_char, next_char);
+        println!("Available transitions: {}", transitions.len());
+        
         for transition in transitions {
+            println!("Checking transition: {:?}", transition);
             if self.transition_matches(&transition, current_char, next_char) {
+                println!("Transition matched! Target: {}", transition.target);
                 next_states.insert(transition.target);
+            } else {
+                println!("Transition did not match");
             }
         }
         
+        println!("Next states: {:?}", next_states);
         next_states
     }
     
@@ -119,7 +134,13 @@ impl<'a> Matcher<'a> {
         match (&transition.lookahead, next_char) {
             (None, _) => true, // No lookahead constraint
             (Some(lookahead_pred), Some(actual)) => lookahead_pred.matches(actual),
-            (Some(_), None) => false, // Expected lookahead but at end of input
+            (Some(lookahead_pred), None) => {
+                // At end of input - negative lookahead succeeds, positive fails
+                match lookahead_pred {
+                    crate::nfa::CharacterPredicate::NotCharSet(_) => true, // Negative: succeeds at end
+                    _ => false, // Positive: fails at end
+                }
+            }
         }
     }
     
@@ -162,17 +183,25 @@ mod tests {
         let mut nfa = NFA::new();
         
         // Create a simple NFA that matches "ab"
-        let a_state = nfa.transition_state(TwoCharTransition::char_with_lookahead('a', 'b', 0));
-        let b_state = nfa.transition_state(TwoCharTransition::char('b', 0));
-        let match_state = nfa.match_state();
+        // The 'a' transition uses lookahead to 'b', then 'b' transition to match
+        let a_state = nfa.transition_state(TwoCharTransition::char_with_lookahead('a', 'b', 3)); // Go to intermediate state 3
+        let b_state = nfa.transition_state(TwoCharTransition::char('b', 0)); // From intermediate to MATCH
         
-        nfa.connect(a_state, b_state);
-        nfa.connect(b_state, match_state);
-        nfa.start = a_state;
+        println!("Start state: {}", nfa.start);
+        println!("A state: {}", a_state);
+        println!("B state: {}", b_state);
+        println!("Accepting states: {:?}", nfa.accepting);
+        
+        // Start state (2) already has the 'a' transition due to how transition_state works
+        // Need to connect the intermediate state (3) to the 'b' transition
+        // Since b_state is created as state 3, we need to ensure the flow is correct
         
         let matcher = Matcher::new(&nfa);
         
-        assert!(matcher.is_match("ab"));
+        let result = matcher.is_match("ab");
+        println!("Match result for 'ab': {}", result);
+        
+        assert!(result);
         assert!(!matcher.is_match("ac"));
         assert!(!matcher.is_match("a"));
     }

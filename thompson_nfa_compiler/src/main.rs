@@ -1,7 +1,49 @@
-use thompson_nfa_compiler::Compiler;
+use thompson_nfa_compiler::{Compiler, SystemVerilogGenerator};
 use regex_syntax::ParserBuilder;
 
+use std::env;
+
+fn compile_pattern_to_file(pattern: &str, module_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Parse the regex pattern
+    let hir = ParserBuilder::new().build().parse(pattern)?;
+    
+    // Compile to two-character Thompson NFA
+    let nfa = Compiler::new().compile(&hir)?;
+    
+    // Generate SystemVerilog
+    let generator = SystemVerilogGenerator::new();
+    let verilog_code = generator.generate_module(&nfa, module_name);
+    
+    // Write to file
+    let filename = format!("{}.sv", module_name);
+    std::fs::write(&filename, verilog_code)?;
+    
+    Ok(())
+}
+
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    
+    if args.len() >= 3 {
+        // CLI mode: cargo run -- <pattern> <module_name>
+        let pattern = &args[1];
+        let module_name = &args[2];
+        
+        println!("Compiling pattern '{}' to module '{}'", pattern, module_name);
+        
+        match compile_pattern_to_file(pattern, module_name) {
+            Ok(()) => {
+                println!("Success: Generated {}.sv", module_name);
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    
+    // Default demo mode
     println!("Two-Character Thompson NFA Compiler - NFA Structure Demo");
     println!("=========================================================");
     
@@ -63,6 +105,9 @@ fn main() {
     
     // Demonstrate manual NFA construction with two-character transitions
     demonstrate_manual_construction();
+    
+    // Demonstrate SystemVerilog generation
+    demonstrate_verilog_generation();
 }
 
 fn print_nfa(nfa: &thompson_nfa_compiler::NFA) {
@@ -183,4 +228,41 @@ fn demonstrate_manual_construction() {
     lookahead_nfa.start = ab_state;
     
     print_nfa(&lookahead_nfa);
+}
+
+fn demonstrate_verilog_generation() {
+    println!("\n=== SystemVerilog Generation Demo ===");
+    
+    // Test with a simple possessive pattern
+    let pattern = "(?:[sdmt]|ll|ve|re)| ?\\p{L}++| ?\\p{N}++| ?[^\\s\\p{L}\\p{N}]++|\\s++$|\\s+\\S|\\s";
+    println!("\n--- Generating SystemVerilog for '{}' ---", pattern);
+    
+    // Parse and compile
+    let hir = match ParserBuilder::new().build().parse(pattern) {
+        Ok(hir) => hir,
+        Err(e) => {
+            println!("Failed to parse: {}", e);
+            return;
+        }
+    };
+    
+    let nfa = match Compiler::new().compile(&hir) {
+        Ok(nfa) => nfa,
+        Err(e) => {
+            println!("Failed to compile: {}", e);
+            return;
+        }
+    };
+    
+    // Generate SystemVerilog
+    let generator = SystemVerilogGenerator::new();
+    let verilog_code = generator.generate_module(&nfa, "tokenizer_complex");
+    
+    // Write to file
+    match std::fs::write("tokenizer_complex.sv", &verilog_code) {
+        Ok(_) => println!("SystemVerilog generated successfully -> tokenizer_complex.sv"),
+        Err(e) => println!("Failed to write SystemVerilog file: {}", e),
+    }
+    
+    println!("\nGenerated {} lines of SystemVerilog", verilog_code.lines().count());
 }
