@@ -842,55 +842,58 @@ impl Compiler {
         })
     }
     
-    /// Compile possessive + quantifier using lookahead structure
+    /// Compile possessive + quantifier using direct loop structure
     fn compile_possessive_plus(&mut self, expr: &Hir) -> CompileResult<Fragment> {
         // Convert the expression to a character predicate
         let pattern_predicate = self.hir_to_predicate(expr)?;
         
-        // Create transitions with proper possessive structure:
-        // - pattern with lookahead pattern -> loop back (for possessive continuation)  
-        // - pattern with lookahead !pattern -> exit (for normal exit)
-        let mut transitions = Vec::new();
+        // For possessive +, we need:
+        // 1. First state: must match pattern once, go directly to loop
+        // 2. Loop state: greedily match more instances with lookahead and built-in exit
+        // 3. End state: final accepting state
         
-        // Possessive loop: if current matches pattern AND next also matches pattern, loop back
+        // Create end state first
+        let end_state = self.nfa.epsilon(usize::MAX);
+        
+        // Create loop state with two transitions:
+        // 1. Loop back if pattern matches with pattern lookahead
+        // 2. Exit if pattern matches but lookahead doesn't match (covers end of input too)
+        let mut loop_transitions = Vec::new();
+        
+        // Loop transition: pattern + pattern lookahead -> continue
         let loop_transition = TwoCharTransition::predicate(
-            pattern_predicate.clone(), 
-            Some(pattern_predicate.clone()), 
-            usize::MAX  // Will point back to self
+            pattern_predicate.clone(),
+            Some(pattern_predicate.clone()),
+            usize::MAX  // Will point back to loop state
         );
-        transitions.push(loop_transition);
+        loop_transitions.push(loop_transition);
         
-        // Normal exit: if current matches pattern but next doesn't match pattern, exit
+        // Exit transition: pattern + non-pattern lookahead OR no lookahead -> end
         let exit_transition = TwoCharTransition::predicate(
             pattern_predicate.clone(),
-            Some(self.negate_predicate(pattern_predicate)), 
+            Some(self.negate_predicate(pattern_predicate.clone())),
             usize::MAX  // Will point to end state
         );
-        transitions.push(exit_transition);
+        loop_transitions.push(exit_transition);
         
-        // Create the main possessive state
-        let main_state = self.nfa.transitions_state(transitions);
+        let loop_state = self.nfa.transitions_state(loop_transitions);
         
-        // Update the loop transitions to point back to main_state
-        if let crate::nfa::State::Transitions { transitions } = &mut self.nfa.states[main_state] {
+        // Update loop state transitions
+        if let crate::nfa::State::Transitions { transitions } = &mut self.nfa.states[loop_state] {
             for (i, transition) in transitions.iter_mut().enumerate() {
-                if transition.lookahead.is_some() && transition.target == usize::MAX {
-                    // Only the first transition (loop) should point back to self
-                    if i == 0 {
-                        transition.target = main_state; // Point back to self for possessive loops
+                if transition.target == usize::MAX {
+                    match i {
+                        0 => transition.target = loop_state, // Loop back
+                        1 => transition.target = end_state,  // Exit to end
+                        _ => unreachable!("Only expecting 2 transitions"),
                     }
                 }
             }
         }
         
-        // Create end state that exit transitions will point to
-        let end_state = self.nfa.epsilon(usize::MAX);
-        
-        // Connect exit transitions to end state
-        self.nfa.connect(main_state, end_state);
-        
+        // The loop state IS the start state - no separate first match needed
         Ok(Fragment {
-            start: main_state,
+            start: loop_state,
             end: end_state,
         })
     }

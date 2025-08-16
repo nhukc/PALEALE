@@ -80,8 +80,8 @@ class TestCocotbRunner:
         self.run_cocotb_test(tmp_path, "a|b|c", "alternation_test", "cocotb_char_test")
 
     def test_possessive_quantifier_runner(self, tmp_path):
-        """Test possessive quantifier (currently broken)."""
-        self.run_cocotb_test(tmp_path, "a++", "possessive_test", "cocotb_possessive_test")
+        """Test possessive quantifier."""
+        self.run_cocotb_test(tmp_path, "L++", "possessive_test", "cocotb_possessive_test")
 
 if __name__ == "__main__":
     # Direct usage without pytest
